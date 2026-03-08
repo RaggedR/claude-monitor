@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --opus: #a78bfa;
+    --opus-bg: rgba(167, 139, 250, 0.12);
+    --sonnet: #58d68d;
+    --sonnet-bg: rgba(88, 214, 141, 0.12);
+    --haiku: #f0883e;
+    --haiku-bg: rgba(240, 136, 62, 0.12);
+    --active: #3fb950;
+    --danger: #f85149;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+  }
+
+  .sse-status {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .sse-status .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .sse-status .dot.connected { background: var(--active); }
+  .sse-status .dot.disconnected { background: var(--danger); }
+
+  /* ── Cards ─────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .section-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  /* ── Summary Cards Grid ────────────────────────── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .summary-card .value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .summary-card .label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .summary-card .value.active { color: var(--active); }
+  .summary-card .value.opus { color: var(--opus); }
+  .summary-card .value.cost { color: var(--haiku); }
+
+  /* ── Main Layout ───────────────────────────────── */
+  .grid-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .grid-full {
+    margin-bottom: 16px;
+  }
+
+  .grid-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Session List ──────────────────────────────── */
+  .session-list {
+    list-style: none;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .session-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+    gap: 10px;
+  }
+
+  .session-item:hover { background: rgba(255,255,255,0.03); }
+  .session-item.selected { background: rgba(88, 166, 255, 0.08); border-left: 3px solid var(--accent); }
+
+  .session-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .session-dot.active { background: var(--active); box-shadow: 0 0 6px var(--active); }
+  .session-dot.inactive { background: var(--border); }
+
+  .session-info { flex: 1; min-width: 0; }
+  .session-project {
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .session-meta {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .session-tokens {
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .model-badge {
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+    display: inline-block;
+  }
+  .model-badge.opus { background: var(--opus-bg); color: var(--opus); }
+  .model-badge.sonnet { background: var(--sonnet-bg); color: var(--sonnet); }
+  .model-badge.haiku { background: var(--haiku-bg); color: var(--haiku); }
+
+  /* ── Token Usage Chart ─────────────────────────── */
+  .bar-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 140px;
+    padding-top: 8px;
+  }
+
+  .bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: flex-end;
+    position: relative;
+  }
+
+  .bar-stack {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 8px;
+  }
+
+  .bar-segment {
+    width: 100%;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.3s ease;
+    min-height: 0;
+  }
+  .bar-segment.opus { background: var(--opus); }
+  .bar-segment.sonnet { background: var(--sonnet); }
+  .bar-segment.haiku { background: var(--haiku); }
+
+  .bar-label {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    text-align: center;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    max-height: 40px;
+    overflow: hidden;
+  }
+
+  .chart-legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 8px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+
+  .legend-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  /* ── Agent Activity Feed ───────────────────────── */
+  .agent-feed {
+    list-style: none;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .agent-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+  }
+
+  .agent-type {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    background: var(--opus-bg);
+    color: var(--opus);
+    white-space: nowrap;
+  }
+
+  .agent-desc {
+    flex: 1;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .agent-stats {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  /* ── Hourly Heatmap ────────────────────────────── */
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    margin-top: 8px;
+  }
+
+  .heatmap-cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    background: var(--border);
+    position: relative;
+  }
+
+  .heatmap-cell::after {
+    content: attr(data-hour);
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.5rem;
+    color: var(--text-dim);
+  }
+
+  .heatmap-labels {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    margin-top: 4px;
+  }
+  .heatmap-labels span {
+    text-align: center;
+    font-size: 0.5rem;
+    color: var(--text-dim);
+  }
+
+  /* ── Model Breakdown ───────────────────────────── */
+  .model-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+
+  .model-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 180px;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+  }
+
+  .model-bar-container {
+    flex: 1;
+    height: 20px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .model-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+
+  .model-cost {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 80px;
+    text-align: right;
+  }
+
+  /* ── Session Detail Modal ──────────────────────── */
+  .detail-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 24px;
+    overflow-y: auto;
+  }
+  .detail-overlay.visible { display: flex; }
+
+  .detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 900px;
+    width: 100%;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+
+  .detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .detail-header h2 { margin: 0; }
+
+  .back-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .back-btn:hover { background: rgba(255,255,255,0.05); }
+  .back-btn .arrow { font-size: 1.1rem; }
+
+  .detail-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .detail-stat {
+    text-align: center;
+    padding: 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 6px;
+  }
+  .detail-stat .value { font-size: 1.4rem; font-weight: 700; }
+  .detail-stat .label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+
+  .detail-timeline {
+    margin-top: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .timeline-msg {
+    padding: 8px 12px;
+    border-left: 3px solid var(--border);
+    margin-bottom: 4px;
+    font-size: 0.8rem;
+  }
+  .timeline-msg.user { border-left-color: var(--accent); background: rgba(88,166,255,0.04); }
+  .timeline-msg.assistant { border-left-color: var(--opus); }
+  .timeline-msg .msg-meta {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .timeline-msg .msg-preview {
+    color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 4.2em;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    transition: max-height 0.3s ease;
+  }
+  .timeline-msg .msg-preview::after {
+    content: '+ click to expand';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1.4em;
+    background: linear-gradient(transparent, var(--surface));
+    pointer-events: none;
+    font-size: 0.65rem;
+    color: var(--accent);
+    text-align: right;
+    padding-right: 8px;
+    line-height: 1.4em;
+  }
+  .timeline-msg.user .msg-preview::after {
+    background: linear-gradient(transparent, rgba(22, 27, 34, 0.97));
+  }
+  .timeline-msg .msg-preview.expanded {
+    max-height: none;
+    cursor: default;
+  }
+  .timeline-msg .msg-preview.expanded::after {
+    display: none;
+  }
+  .timeline-msg .msg-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .timeline-msg .msg-tools .tool-chip {
+    font-size: 0.65rem;
+    padding: 1px 7px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    color: var(--accent);
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tool-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .tool-chip {
+    font-size: 0.7rem;
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    color: var(--text-dim);
+  }
+  .tool-chip .count { color: var(--text); font-weight: 600; }
+
+  /* ── Toast Notifications ────────────────────────── */
+  .toast-container {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 380px;
+  }
+
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--opus);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    animation: slideIn 0.3s ease;
+    cursor: pointer;
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .toast:hover { transform: translateX(-4px); }
+  .toast.exiting { opacity: 0; transform: translateX(100px); }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(100px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .toast-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--opus-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+  }
+
+  .toast-body { flex: 1; min-width: 0; }
+  .toast-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--opus);
+    margin-bottom: 2px;
+  }
+  .toast-desc {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .toast-action {
+    font-size: 0.65rem;
+    color: var(--accent);
+    margin-top: 4px;
+  }
+
+  /* ── Loading ───────────────────────────────────── */
+  .loading {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    padding: 20px;
+    text-align: center;
+  }
+  .loading::after {
+    content: '';
+    animation: dots 1.5s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+  }
+
+  .empty {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    padding: 20px;
+    text-align: center;
+    font-style: italic;
+  }
+
+  /* ── Responsive ────────────────────────────────── */
+  @media (max-width: 900px) {
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .grid-main { grid-template-columns: 1fr; }
+    .grid-bottom { grid-template-columns: 1fr; }
+    .detail-stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ── Scrollbar ─────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<h1>Claude Monitor</h1>
+<p class="subtitle">Local session & token monitor</p>
+<p class="sse-status" id="sseStatus"><span class="dot disconnected" id="sseDot"></span> Connecting...</p>
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Summary Cards -->
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="value active" id="activeSessions">-</div>
+    <div class="label">Active Sessions</div>
+  </div>
+  <div class="summary-card">
+    <div class="value" id="todayTokens">-</div>
+    <div class="label">Today's Tokens</div>
+  </div>
+  <div class="summary-card">
+    <div class="value cost" id="todayCost">-</div>
+    <div class="label">API-Equivalent</div>
+  </div>
+  <div class="summary-card">
+    <div class="value opus" id="agentsSpawned">-</div>
+    <div class="label">Agents Spawned</div>
+  </div>
+</div>
+
+<!-- Rate Limit Meter -->
+<div class="card" id="rateLimitCard" style="margin-bottom:16px">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+    <div>
+      <div class="section-label">Rate Limit</div>
+      <h2 style="margin-bottom:0">Max 20x — Rolling 5h Window</h2>
+    </div>
+    <div style="text-align:right">
+      <span id="rlMessages" style="font-size:1.4rem;font-weight:700">-</span>
+      <span style="color:var(--text-dim);font-size:0.8rem"> / ~900 msgs</span>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.05); border-radius:6px; height:24px; overflow:hidden; position:relative">
+    <div id="rlBar" style="height:100%; border-radius:6px; transition:width 0.5s ease, background 0.5s ease; width:0%"></div>
+    <div id="rlLabel" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:600"></div>
+  </div>
+</div>
+
+<!-- Main grid: Sessions + Token Chart -->
+<div class="grid-main">
+  <div class="card">
+    <div class="section-label">Sessions</div>
+    <h2>Recent Sessions</h2>
+    <ul class="session-list" id="sessionList">
+      <li class="loading">Loading sessions</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="section-label">Usage</div>
+    <h2>Token Usage (14 days)</h2>
+    <div class="bar-chart" id="tokenChart"></div>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:var(--opus)"></span>Opus</span>
+      <span><span class="legend-dot" style="background:var(--sonnet)"></span>Sonnet</span>
+      <span><span class="legend-dot" style="background:var(--haiku)"></span>Haiku</span>
+    </div>
+  </div>
+</div>
+
+<!-- Agent Activity Feed -->
+<div class="grid-full card">
+  <div class="section-label">Activity</div>
+  <h2>Agent Activity Feed</h2>
+  <ul class="agent-feed" id="agentFeed">
+    <li class="loading">Loading agents</li>
+  </ul>
+</div>
+
+<!-- Bottom grid: Heatmap + Model Breakdown -->
+<div class="grid-bottom">
+  <div class="card">
+    <div class="section-label">Patterns</div>
+    <h2>Hourly Activity</h2>
+    <div class="heatmap" id="heatmap"></div>
+    <div class="heatmap-labels" id="heatmapLabels"></div>
+  </div>
+  <div class="card">
+    <div class="section-label">Models</div>
+    <h2>Model Breakdown</h2>
+    <div id="modelBreakdown"></div>
+  </div>
+</div>
+
+<!-- Session Detail Overlay -->
+<div class="detail-overlay" id="detailOverlay">
+  <div class="detail-panel" id="detailPanel">
+    <div class="detail-header">
+      <div>
+        <div class="section-label">Session Detail</div>
+        <h2 id="detailTitle">-</h2>
+      </div>
+      <button class="back-btn" id="closeDetail"><span class="arrow">&larr;</span> Back</button>
+    </div>
+    <div class="detail-stats" id="detailStats"></div>
+    <div>
+      <div class="section-label">Tool Usage</div>
+      <div class="tool-chips" id="detailTools"></div>
+    </div>
+    <div>
+      <div class="section-label" style="margin-top:16px">Message Timeline</div>
+      <div class="detail-timeline" id="detailTimeline"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Utilities ──────────────────────────────────────
+function fmt(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function fmtCost(n) {
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(2);
+  return '$' + n.toFixed(3);
+}
+
+function fmtDuration(ms) {
+  if (!ms || ms <= 0) return '-';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
+function fmtTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function familyColor(family) {
+  if (family === 'opus') return 'var(--opus)';
+  if (family === 'sonnet') return 'var(--sonnet)';
+  if (family === 'haiku') return 'var(--haiku)';
+  return 'var(--text-dim)';
+}
+
+// ── State ──────────────────────────────────────────
+let sessions = [];
+let statsData = null;
+let agentData = [];
+
+// ── Fetch helpers ──────────────────────────────────
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+// ── Render: Summary Cards ──────────────────────────
+function renderSummary() {
+  if (!statsData) return;
+  const t = statsData.today || {};
+  document.getElementById('activeSessions').textContent = t.activeSessions || 0;
+  document.getElementById('todayTokens').textContent = fmt(t.tokens || 0);
+  document.getElementById('todayCost').textContent = fmtCost(t.cost || 0);
+  document.getElementById('agentsSpawned').textContent = t.agentsSpawned || 0;
+
+  // Rate limit meter
+  const rl = statsData.rateLimit;
+  if (rl) {
+    const pct = rl.usagePercent;
+    const bar = document.getElementById('rlBar');
+    const label = document.getElementById('rlLabel');
+    const msgs = document.getElementById('rlMessages');
+
+    msgs.textContent = rl.messagesInWindow;
+
+    bar.style.width = pct + '%';
+    if (pct < 50) {
+      bar.style.background = 'var(--active)';
+    } else if (pct < 75) {
+      bar.style.background = 'var(--haiku)';
+    } else {
+      bar.style.background = 'var(--danger)';
+    }
+
+    label.textContent = pct + '% used';
+    if (pct >= 75) label.style.color = 'var(--danger)';
+    else label.style.color = 'var(--text)';
+  }
+}
+
+// ── Render: Session List ───────────────────────────
+function renderSessions() {
+  const list = document.getElementById('sessionList');
+  if (sessions.length === 0) {
+    list.innerHTML = '<li class="empty">No sessions found</li>';
+    return;
+  }
+
+  list.innerHTML = sessions.map(s => {
+    const project = (s.project || 'unknown').split('/').slice(-2).join('/');
+    return `
+      <li class="session-item" data-id="${s.sessionId}">
+        <span class="session-dot ${s.isActive ? 'active' : 'inactive'}"></span>
+        <div class="session-info">
+          <div class="session-project">${esc(project)}</div>
+          <div class="session-meta">
+            ${s.branch ? `<span>${esc(s.branch)}</span>` : ''}
+            <span>${fmtDuration(s.duration)}</span>
+            <span>${s.messageCount} msgs</span>
+            <span class="model-badge ${s.modelFamily || ''}">${s.modelFamily || '?'}</span>
+          </div>
+        </div>
+        <div class="session-tokens">${fmt(s.tokens?.total || 0)}</div>
+      </li>
+    `;
+  }).join('');
+
+  // Click handlers
+  list.querySelectorAll('.session-item').forEach(el => {
+    el.addEventListener('click', () => openDetail(el.dataset.id));
+  });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Render: Token Chart ────────────────────────────
+function renderTokenChart() {
+  const chart = document.getElementById('tokenChart');
+  if (!statsData || !statsData.dailyCosts) {
+    chart.innerHTML = '<div class="empty">No data</div>';
+    return;
+  }
+
+  // Get last 14 days
+  const days = statsData.dailyCosts.slice(-14);
+  if (days.length === 0) {
+    chart.innerHTML = '<div class="empty">No data</div>';
+    return;
+  }
+
+  // Find max for scaling
+  const maxTokens = Math.max(...days.map(d => d.totalTokens || 0), 1);
+
+  chart.innerHTML = days.map(day => {
+    const tf = day.tokensByFamily || {};
+    const total = day.totalTokens || 0;
+    const heightPct = (total / maxTokens) * 100;
+
+    // Stack: opus at bottom, sonnet, haiku on top
+    const opusPct = total > 0 ? ((tf.opus || 0) / maxTokens) * 100 : 0;
+    const sonnetPct = total > 0 ? ((tf.sonnet || 0) / maxTokens) * 100 : 0;
+    const haikuPct = total > 0 ? ((tf.haiku || 0) / maxTokens) * 100 : 0;
+    const unknownPct = total > 0 ? (((tf.unknown || 0)) / maxTokens) * 100 : 0;
+
+    const dateLabel = day.date.slice(5); // MM-DD
+
+    return `
+      <div class="bar-group" title="${day.date}: ${fmt(total)} tokens, ${fmtCost(day.cost || 0)}">
+        <div class="bar-stack" style="height:100%">
+          ${haikuPct > 0 ? `<div class="bar-segment haiku" style="height:${haikuPct}%"></div>` : ''}
+          ${sonnetPct > 0 ? `<div class="bar-segment sonnet" style="height:${sonnetPct}%"></div>` : ''}
+          ${(opusPct + unknownPct) > 0 ? `<div class="bar-segment opus" style="height:${opusPct + unknownPct}%"></div>` : ''}
+        </div>
+        <div class="bar-label">${dateLabel}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Render: Agent Feed ─────────────────────────────
+function renderAgents() {
+  const feed = document.getElementById('agentFeed');
+  if (agentData.length === 0) {
+    feed.innerHTML = '<li class="empty">No agents found</li>';
+    return;
+  }
+
+  feed.innerHTML = agentData.map(a => {
+    const desc = a.agentSlug || a.description || a.agentId || 'agent';
+    const hasId = a.agentId ? `data-agent-id="${esc(a.agentId)}"` : '';
+    return `
+      <li class="agent-item" ${hasId} style="cursor:pointer">
+        <span class="session-dot ${a.isActive ? 'active' : 'inactive'}"></span>
+        <span class="agent-type">${esc(a.modelFamily || '?')}</span>
+        <span class="agent-desc" title="${esc(a.description || '')}">${esc(desc)}</span>
+        <span class="agent-stats">
+          ${fmtDuration(a.duration)} &middot; ${a.messageCount || 0} msgs &middot; ${fmt(a.tokens?.total || 0)} &middot; ${fmtCost(a.cost || 0)}
+        </span>
+      </li>
+    `;
+  }).join('');
+
+  // Click handlers for agent detail
+  feed.querySelectorAll('.agent-item[data-agent-id]').forEach(el => {
+    el.addEventListener('click', () => openAgentDetail(el.dataset.agentId));
+  });
+}
+
+// ── Render: Hourly Heatmap ─────────────────────────
+function renderHeatmap() {
+  const heatmap = document.getElementById('heatmap');
+  const labels = document.getElementById('heatmapLabels');
+
+  const counts = statsData?.hourCounts || {};
+  const maxCount = Math.max(...Object.values(counts).map(Number), 1);
+
+  let cells = '';
+  let lbls = '';
+  for (let h = 0; h < 24; h++) {
+    const count = counts[String(h)] || 0;
+    const intensity = count / maxCount;
+    const bg = intensity === 0
+      ? 'var(--border)'
+      : `rgba(167, 139, 250, ${0.15 + intensity * 0.85})`;
+    cells += `<div class="heatmap-cell" style="background:${bg}" title="${h}:00 — ${count} messages"></div>`;
+    lbls += `<span>${h}</span>`;
+  }
+
+  heatmap.innerHTML = cells;
+  labels.innerHTML = lbls;
+}
+
+// ── Render: Model Breakdown ────────────────────────
+function renderModelBreakdown() {
+  const container = document.getElementById('modelBreakdown');
+  if (!statsData?.modelCosts) {
+    container.innerHTML = '<div class="empty">No data</div>';
+    return;
+  }
+
+  const models = Object.entries(statsData.modelCosts)
+    .sort((a, b) => (b[1].cost || 0) - (a[1].cost || 0));
+
+  const maxCost = Math.max(...models.map(([, m]) => m.cost || 0), 0.01);
+
+  container.innerHTML = models.map(([name, m]) => {
+    const family = m.family || 'unknown';
+    const pct = ((m.cost || 0) / maxCost) * 100;
+    const color = familyColor(family);
+    const shortName = name.replace('claude-', '');
+
+    return `
+      <div class="model-row">
+        <span class="model-name" style="color:${color}">${esc(shortName)}</span>
+        <div class="model-bar-container">
+          <div class="model-bar" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="model-cost" style="color:${color}">${fmtCost(m.cost || 0)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Session Detail ─────────────────────────────────
+async function openDetail(sessionId) {
+  const overlay = document.getElementById('detailOverlay');
+  overlay.classList.add('visible');
+
+  const title = document.getElementById('detailTitle');
+  const stats = document.getElementById('detailStats');
+  const tools = document.getElementById('detailTools');
+  const timeline = document.getElementById('detailTimeline');
+
+  title.textContent = 'Loading...';
+  stats.innerHTML = '';
+  tools.innerHTML = '';
+  timeline.innerHTML = '<div class="loading">Loading session detail</div>';
+
+  try {
+    // Fetch session detail and its subagents in parallel
+    const [d, agentsResp] = await Promise.all([
+      fetchJSON(`/api/sessions/${sessionId}`),
+      fetchJSON(`/api/sessions/${sessionId}/agents`).catch(() => ({ agents: [] })),
+    ]);
+    const sessionAgents = agentsResp.agents || [];
+
+    // Header
+    const project = (d.project || 'unknown').split('/').slice(-2).join('/');
+    title.textContent = `${project} ${d.branch ? '(' + d.branch + ')' : ''}`;
+
+    // Stats
+    stats.innerHTML = `
+      <div class="detail-stat">
+        <div class="value">${d.messageCount}</div>
+        <div class="label">Messages</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmt((d.totalTokens?.input || 0) + (d.totalTokens?.output || 0) + (d.totalTokens?.cacheRead || 0) + (d.totalTokens?.cacheCreate || 0))}</div>
+        <div class="label">Total Tokens</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmtCost(d.totalCost || 0)}</div>
+        <div class="label">API-Equivalent</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmtDuration(d.duration)}</div>
+        <div class="label">Duration</div>
+      </div>
+    `;
+
+    // Tool chips
+    if (d.toolCalls) {
+      tools.innerHTML = Object.entries(d.toolCalls)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `<span class="tool-chip">${esc(name)} <span class="count">${count}</span></span>`)
+        .join('');
+    }
+
+    // Match Agent tool_use blocks to subagents by spawn order
+    let agentSpawnIndex = 0;
+    const agentsByOrder = [...sessionAgents]; // already sorted by firstTimestamp
+
+    function renderToolChip(t) {
+      if (typeof t === 'object' && t.tool === 'Agent') {
+        // Match by spawn order — Nth Agent call = Nth subagent
+        const match = agentsByOrder[agentSpawnIndex];
+        agentSpawnIndex++;
+        if (match) {
+          return `<span class="tool-chip agent-link" data-agent-id="${esc(match.agentId)}" style="cursor:pointer;color:var(--accent);border:1px solid var(--accent)">${esc(t.label)} &rarr;</span>`;
+        }
+        return `<span class="tool-chip" style="color:var(--opus)">${esc(t.label)}</span>`;
+      }
+      return `<span class="tool-chip">${esc(t)}</span>`;
+    }
+
+    // Timeline
+    if (d.messages && d.messages.length > 0) {
+      timeline.innerHTML = d.messages.map(m => {
+        if (m.type === 'user') {
+          return `
+            <div class="timeline-msg user">
+              <div class="msg-meta">${fmtTime(m.timestamp)} &middot; user</div>
+              ${m.preview ? `<div class="msg-preview">${esc(m.preview)}</div>` : ''}
+            </div>
+          `;
+        } else {
+          const tokenInfo = m.tokens
+            ? `${fmt(m.tokens.input + m.tokens.output)} tok`
+            : '';
+          return `
+            <div class="timeline-msg assistant">
+              <div class="msg-meta">
+                ${fmtTime(m.timestamp)} &middot;
+                <span class="model-badge ${m.model?.includes('opus') ? 'opus' : m.model?.includes('sonnet') ? 'sonnet' : m.model?.includes('haiku') ? 'haiku' : ''}">${(m.model || '').replace('claude-', '').split('-').slice(0, 2).join('-')}</span>
+                &middot; ${tokenInfo}
+                ${m.toolUseCount ? ' &middot; ' + m.toolUseCount + ' tools' : ''}
+                &middot; ${fmtCost(m.cost || 0)}
+              </div>
+              ${m.preview ? `<div class="msg-preview">${esc(m.preview)}</div>` : ''}
+              ${m.toolNames?.length ? `<div class="msg-tools">${m.toolNames.map(t => renderToolChip(t)).join('')}</div>` : ''}
+            </div>
+          `;
+        }
+      }).join('');
+
+      // Click-to-expand on previews
+      timeline.querySelectorAll('.msg-preview').forEach(el => {
+        el.addEventListener('click', () => el.classList.toggle('expanded'));
+      });
+      // Click agent links to open agent detail
+      timeline.querySelectorAll('.agent-link').forEach(el => {
+        el.addEventListener('click', () => openAgentDetail(el.dataset.agentId));
+      });
+    } else {
+      timeline.innerHTML = '<div class="empty">No messages in detail view</div>';
+    }
+
+    // Subagents section
+    if (sessionAgents.length > 0) {
+      const agentSection = document.createElement('div');
+      agentSection.style.marginTop = '16px';
+      agentSection.innerHTML = `
+        <div class="section-label">Subagents (${sessionAgents.length})</div>
+        <div style="margin-top:8px">
+          ${sessionAgents.map(a => `
+            <div class="agent-item" data-agent-id="${esc(a.agentId)}" style="cursor:pointer;border-bottom:1px solid var(--border);padding:8px 0">
+              <span class="session-dot" style="background:var(--opus);width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px"></span>
+              <span class="model-badge ${a.modelFamily || ''}" style="margin-right:8px">${esc(a.modelFamily || '?')}</span>
+              <span style="font-size:0.8rem;flex:1">${esc(a.agentSlug || a.agentId)}</span>
+              <span style="font-size:0.72rem;color:var(--text-dim);margin-left:8px">${a.messageCount} msgs &middot; ${fmt(a.tokens?.total || 0)} &middot; ${fmtDuration(a.duration)}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      timeline.parentElement.appendChild(agentSection);
+      agentSection.querySelectorAll('.agent-item[data-agent-id]').forEach(el => {
+        el.addEventListener('click', () => openAgentDetail(el.dataset.agentId));
+      });
+    }
+  } catch (err) {
+    title.textContent = 'Error loading session';
+    timeline.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+async function openAgentDetail(agentId) {
+  const overlay = document.getElementById('detailOverlay');
+  overlay.classList.add('visible');
+
+  const title = document.getElementById('detailTitle');
+  const stats = document.getElementById('detailStats');
+  const tools = document.getElementById('detailTools');
+  const timeline = document.getElementById('detailTimeline');
+
+  title.textContent = 'Loading agent...';
+  stats.innerHTML = '';
+  tools.innerHTML = '';
+  timeline.innerHTML = '<div class="loading">Loading agent detail</div>';
+
+  try {
+    const d = await fetchJSON(`/api/agents/${agentId}`);
+
+    title.textContent = d.agentSlug || d.agentId || 'Agent';
+    if (d.description) {
+      title.textContent += ` — ${d.description.slice(0, 80)}`;
+    }
+
+    stats.innerHTML = `
+      <div class="detail-stat">
+        <div class="value">${d.messageCount}</div>
+        <div class="label">Messages</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmt((d.totalTokens?.input || 0) + (d.totalTokens?.output || 0) + (d.totalTokens?.cacheRead || 0) + (d.totalTokens?.cacheCreate || 0))}</div>
+        <div class="label">Total Tokens</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmtCost(d.totalCost || 0)}</div>
+        <div class="label">Est. Cost</div>
+      </div>
+      <div class="detail-stat">
+        <div class="value">${fmtDuration(d.duration)}</div>
+        <div class="label">Duration</div>
+      </div>
+    `;
+
+    // Tool usage chips
+    if (d.toolCalls && Object.keys(d.toolCalls).length > 0) {
+      tools.innerHTML = Object.entries(d.toolCalls)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `<span class="tool-chip">${esc(name)} <span class="count">${count}</span></span>`)
+        .join('');
+    } else {
+      tools.innerHTML = '<span class="empty">No tool calls</span>';
+    }
+
+    // Message timeline
+    if (d.messages && d.messages.length > 0) {
+      timeline.innerHTML = d.messages.map(m => {
+        if (m.type === 'user') {
+          return `
+            <div class="timeline-msg user">
+              <div class="msg-meta">${fmtTime(m.timestamp)} &middot; user</div>
+              ${m.preview ? `<div class="msg-preview">${esc(m.preview)}</div>` : ''}
+            </div>
+          `;
+        } else {
+          const tokenInfo = m.tokens ? `${fmt(m.tokens.input + m.tokens.output)} tok` : '';
+          return `
+            <div class="timeline-msg assistant">
+              <div class="msg-meta">
+                ${fmtTime(m.timestamp)} &middot;
+                <span class="model-badge ${m.model?.includes('opus') ? 'opus' : m.model?.includes('sonnet') ? 'sonnet' : m.model?.includes('haiku') ? 'haiku' : ''}">${(m.model || '').replace('claude-', '').split('-').slice(0, 2).join('-')}</span>
+                &middot; ${tokenInfo}
+                ${m.toolUseCount ? ' &middot; ' + m.toolUseCount + ' tools' : ''}
+                &middot; ${fmtCost(m.cost || 0)}
+              </div>
+              ${m.preview ? `<div class="msg-preview">${esc(m.preview)}</div>` : ''}
+              ${m.toolNames?.length ? `<div class="msg-tools">${m.toolNames.map(t => typeof t === 'object' ? `<span class="tool-chip" style="color:var(--opus)">${esc(t.label)}</span>` : `<span class="tool-chip">${esc(t)}</span>`).join('')}</div>` : ''}
+            </div>
+          `;
+        }
+      }).join('');
+      timeline.querySelectorAll('.msg-preview').forEach(el => {
+        el.addEventListener('click', () => el.classList.toggle('expanded'));
+      });
+    } else {
+      timeline.innerHTML = '<div class="empty">No messages</div>';
+    }
+  } catch (err) {
+    title.textContent = 'Error loading agent';
+    timeline.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+function closeDetail() {
+  document.getElementById('detailOverlay').classList.remove('visible');
+}
+document.getElementById('closeDetail').addEventListener('click', closeDetail);
+document.getElementById('detailOverlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeDetail();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeDetail();
+});
+
+// ── Toast Notifications ────────────────────────────
+function showToast(title, description, onClick) {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `
+    <div class="toast-icon">&#9881;</div>
+    <div class="toast-body">
+      <div class="toast-title">${esc(title)}</div>
+      <div class="toast-desc">${esc(description)}</div>
+      <div class="toast-action">Click to view logs</div>
+    </div>
+  `;
+  if (onClick) {
+    toast.addEventListener('click', () => {
+      toast.classList.add('exiting');
+      setTimeout(() => toast.remove(), 300);
+      onClick();
+    });
+  }
+  container.prepend(toast);
+  // Auto-dismiss after 8 seconds
+  setTimeout(() => {
+    toast.classList.add('exiting');
+    setTimeout(() => toast.remove(), 300);
+  }, 8000);
+}
+
+// ── SSE ────────────────────────────────────────────
+function connectSSE() {
+  const dot = document.getElementById('sseDot');
+  const status = document.getElementById('sseStatus');
+
+  const es = new EventSource('/api/sse');
+
+  es.addEventListener('connected', () => {
+    dot.className = 'dot connected';
+    status.innerHTML = '<span class="dot connected" id="sseDot"></span> Live';
+  });
+
+  es.addEventListener('new-message', (e) => {
+    const data = JSON.parse(e.data);
+    // Update today's token count in summary
+    const el = document.getElementById('todayTokens');
+    if (el && data.tokens) {
+      const add = (data.tokens.input_tokens || 0) + (data.tokens.output_tokens || 0) +
+                  (data.tokens.cache_read_input_tokens || 0) + (data.tokens.cache_creation_input_tokens || 0);
+      if (statsData?.today) {
+        statsData.today.tokens = (statsData.today.tokens || 0) + add;
+        statsData.today.cost = (statsData.today.cost || 0) + (data.cost || 0);
+        renderSummary();
+      }
+    }
+  });
+
+  es.addEventListener('session-update', (e) => {
+    const data = JSON.parse(e.data);
+    // Update session in list
+    const s = sessions.find(s => s.sessionId === data.sessionId);
+    if (s) {
+      s.tokens = data.tokens;
+      s.cost = data.cost;
+      s.isActive = data.isActive;
+      s.messageCount = data.messageCount;
+      renderSessions();
+    }
+  });
+
+  es.addEventListener('agent-spawn', (e) => {
+    const data = JSON.parse(e.data);
+    // Prepend to agent feed
+    if (statsData?.today) {
+      statsData.today.agentsSpawned = (statsData.today.agentsSpawned || 0) + 1;
+      renderSummary();
+    }
+    agentData.unshift({
+      ...data,
+      isActive: true,
+      tokens: { total: 0 },
+      messageCount: 0,
+    });
+    renderAgents();
+
+    // Show toast notification
+    const agentLabel = data.type || 'Agent';
+    const desc = data.description || 'New agent spawned';
+    showToast(`${agentLabel} spawned`, desc, () => {
+      // Try to find the agent by refreshing the list, then open detail
+      loadAgents().then(() => {
+        if (data.agentId) {
+          openAgentDetail(data.agentId);
+        }
+      });
+    });
+  });
+
+  es.addEventListener('new-session', () => {
+    // Refresh session list
+    loadSessions();
+  });
+
+  es.onerror = () => {
+    dot.className = 'dot disconnected';
+    status.innerHTML = '<span class="dot disconnected" id="sseDot"></span> Reconnecting...';
+  };
+}
+
+// ── Initial Load ───────────────────────────────────
+async function loadSessions() {
+  try {
+    const data = await fetchJSON('/api/sessions?limit=50');
+    sessions = data.sessions || [];
+    renderSessions();
+  } catch (err) {
+    document.getElementById('sessionList').innerHTML = `<li class="empty">Error: ${esc(err.message)}</li>`;
+  }
+}
+
+async function loadStats() {
+  try {
+    statsData = await fetchJSON('/api/stats');
+    renderSummary();
+    renderTokenChart();
+    renderHeatmap();
+    renderModelBreakdown();
+  } catch (err) {
+    console.error('Stats load error:', err);
+  }
+}
+
+async function loadAgents() {
+  try {
+    const data = await fetchJSON('/api/agents?limit=50');
+    agentData = data.agents || [];
+    renderAgents();
+  } catch (err) {
+    document.getElementById('agentFeed').innerHTML = `<li class="empty">Error: ${esc(err.message)}</li>`;
+  }
+}
+
+// Boot
+Promise.allSettled([loadSessions(), loadStats(), loadAgents()])
+  .then(() => connectSSE());
+</script>
+</body>
+</html>

@@ -666,23 +666,41 @@ app.get('/api/stats', (req, res) => {
       return { date: day.date, cost: dayCost, tokensByFamily: byFamily, totalTokens: Object.values(day.tokensByModel || {}).reduce((a, b) => a + b, 0) };
     });
 
-    // Today's stats from live index
-    const today = new Date().toISOString().slice(0, 10);
+    // Today's stats from live index (day resets at 3:30am local)
+    const DAY_RESET_MS = (3 * 60 + 30) * 60 * 1000; // 3:30am in ms
+    function dayKey(date) {
+      const d = new Date(date.getTime() - DAY_RESET_MS);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    const today = dayKey(new Date());
+    function localDate(ts) {
+      if (!ts) return '';
+      return dayKey(new Date(ts));
+    }
+
     let todayTokens = 0;
     let todayCost = 0;
     let todayActiveSessions = 0;
     let todayAgents = 0;
 
     for (const meta of sessionIndex.values()) {
-      if (meta.lastTimestamp && meta.lastTimestamp.toISOString().slice(0, 10) === today) {
+      if (meta.lastTimestamp && localDate(meta.lastTimestamp) === today) {
         todayTokens += meta.tokens.total;
         todayCost += meta.cost;
         if (meta.isActive) todayActiveSessions++;
       }
     }
+    let activeAgents = 0;
     for (const meta of fileIndex.values()) {
-      if (meta.isSubagent && meta.lastTimestamp && meta.lastTimestamp.toISOString().slice(0, 10) === today) {
-        todayAgents++;
+      if (meta.isSubagent) {
+        if (meta.lastTimestamp && localDate(meta.lastTimestamp) === today) {
+          todayAgents++;
+        }
+        // Check if agent is currently active
+        try {
+          const stat = fs.statSync(meta.filePath);
+          if ((Date.now() - stat.mtimeMs) < 5 * 60 * 1000) activeAgents++;
+        } catch {}
       }
     }
 
@@ -716,6 +734,7 @@ app.get('/api/stats', (req, res) => {
         cost: todayCost,
         activeSessions: todayActiveSessions,
         agentsSpawned: todayAgents,
+        activeAgents,
       },
       rateLimit: {
         plan: 'Max 20x',

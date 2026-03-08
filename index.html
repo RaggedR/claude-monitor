@@ -659,8 +659,8 @@
     <div class="label">API-Equivalent</div>
   </div>
   <div class="summary-card">
-    <div class="value opus" id="agentsSpawned">-</div>
-    <div class="label">Agents Spawned</div>
+    <div class="value opus"><span id="agentsActive" style="color:var(--active)"></span> <span id="agentsSpawned">-</span></div>
+    <div class="label">Agents <span id="agentsLabel">Today</span></div>
   </div>
 </div>
 
@@ -812,6 +812,10 @@ function renderSummary() {
   document.getElementById('todayTokens').textContent = fmt(t.tokens || 0);
   document.getElementById('todayCost').textContent = fmtCost(t.cost || 0);
   document.getElementById('agentsSpawned').textContent = t.agentsSpawned || 0;
+  const activeEl = document.getElementById('agentsActive');
+  const activeCount = t.activeAgents || 0;
+  activeEl.textContent = activeCount > 0 ? activeCount + ' /' : '';
+  document.getElementById('agentsLabel').textContent = activeCount > 0 ? 'Active / Today' : 'Today';
 
   // Rate limit meter
   const rl = statsData.rateLimit;

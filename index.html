@@ -1039,8 +1039,8 @@ async function openDetail(sessionId) {
     // Stats
     stats.innerHTML = `
       <div class="detail-stat">
-        <div class="value">${d.messageCount}</div>
-        <div class="label">Messages</div>
+        <div class="value">${d.userMessageCount || 0}<span style="font-size:0.65em;color:var(--text-dim)"> / ${d.assistantTurnCount || 0}</span></div>
+        <div class="label">Prompts / Turns</div>
       </div>
       <div class="detail-stat">
         <div class="value">${fmt((d.totalTokens?.input || 0) + (d.totalTokens?.output || 0) + (d.totalTokens?.cacheRead || 0) + (d.totalTokens?.cacheCreate || 0))}</div>
@@ -1175,8 +1175,8 @@ async function openAgentDetail(agentId) {
 
     stats.innerHTML = `
       <div class="detail-stat">
-        <div class="value">${d.messageCount}</div>
-        <div class="label">Messages</div>
+        <div class="value">${d.userMessageCount || 0}<span style="font-size:0.65em;color:var(--text-dim)"> / ${d.assistantTurnCount || 0}</span></div>
+        <div class="label">Prompts / Turns</div>
       </div>
       <div class="detail-stat">
         <div class="value">${fmt((d.totalTokens?.input || 0) + (d.totalTokens?.output || 0) + (d.totalTokens?.cacheRead || 0) + (d.totalTokens?.cacheCreate || 0))}</div>
@@ -1322,6 +1322,8 @@ function connectSSE() {
 
   es.addEventListener('agent-spawn', (e) => {
     const data = JSON.parse(e.data);
+    // Skip if we already have this agent (dedup)
+    if (data.agentId && agentData.some(a => a.agentId === data.agentId)) return;
     // Prepend to agent feed
     if (statsData?.today) {
       statsData.today.agentsSpawned = (statsData.today.agentsSpawned || 0) + 1;

@@ -93,6 +93,9 @@ function indexFile(filePath) {
     const agentId = first.agentId || null;
     const agentSlug = first.slug || null;
 
+    // Skip internal compact agents (context compaction, not user-spawned)
+    if (isSubagent && agentId && agentId.startsWith('acompact-')) return null;
+
     // Get project path and branch from first entry
     const project = first.cwd || first.project || '';
     const branch = first.gitBranch || '';
@@ -404,6 +407,8 @@ function parseSessionDetail(filePath) {
       modelBreakdown,
       duration: (firstTs && lastTs) ? lastTs.getTime() - firstTs.getTime() : 0,
       messageCount: messages.length,
+      userMessageCount: messages.filter(m => m.type === 'user').length,
+      assistantTurnCount: messages.filter(m => m.type === 'assistant').length,
     };
 
     // Recalculate total cost across all models
@@ -476,20 +481,8 @@ function handleFileChange(filePath) {
           agentId: meta?.agentId || null,
         });
 
-        // Check for agent spawns
-        if (Array.isArray(line.message.content)) {
-          for (const block of line.message.content) {
-            if (block.type === 'tool_use' && block.name === 'Agent' && block.input) {
-              broadcastSSE('agent-spawn', {
-                sessionId: meta?.sessionId || line.sessionId,
-                type: block.input.subagent_type || 'unknown',
-                description: block.input.description || '',
-                model: block.input.model || null,
-                timestamp: new Date().toISOString(),
-              });
-            }
-          }
-        }
+        // Agent spawns are announced from setupWatchers() when the subagent file appears
+        // (not here — the parent session's tool_use block doesn't have the agentId)
       }
     }
 

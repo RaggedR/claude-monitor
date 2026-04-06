@@ -421,6 +421,27 @@ function parseSessionDetail(filePath) {
   }
 }
 
+// ── Tokens by Project ──────────────────────────────────────────────────
+const GIT_DIR = path.join(os.homedir(), 'git');
+const TOKENS_DATA_DIR = path.join(GIT_DIR, 'tokens-per-directory');
+
+let tokensByProjectData = { byCwd: null, byOps: null, loadedAt: null };
+
+function loadTokensData() {
+  try {
+    const cwdFile = path.join(TOKENS_DATA_DIR, 'data_by_cwd.json');
+    const opsFile = path.join(TOKENS_DATA_DIR, 'data_by_ops.json');
+    const byCwd = fs.existsSync(cwdFile) ? JSON.parse(fs.readFileSync(cwdFile, 'utf8')) : null;
+    const byOps = fs.existsSync(opsFile) ? JSON.parse(fs.readFileSync(opsFile, 'utf8')) : null;
+    const cwdStat = fs.existsSync(cwdFile) ? fs.statSync(cwdFile) : null;
+    tokensByProjectData = { byCwd, byOps, loadedAt: cwdStat?.mtime?.toISOString() || null };
+    if (byCwd) console.log(`Tokens data loaded: ${byCwd.length} projects (by cwd), ${byOps?.length || 0} projects (by ops)`);
+  } catch (err) {
+    console.error('Failed to load tokens data:', err.message);
+  }
+}
+
+
 // ── SSE ────────────────────────────────────────────────────────────────
 const sseClients = new Set();
 const fileOffsets = new Map();   // filePath -> byte offset
@@ -820,6 +841,18 @@ app.get('/api/agents/:agentId', (req, res) => {
   });
 });
 
+// Tokens by project (reads pre-computed data from ~/git/tokens-per-directory/)
+app.get('/api/tokens-by-project', (req, res) => {
+  const mode = req.query.mode || 'ops'; // 'cwd' or 'ops'
+  const data = mode === 'cwd' ? tokensByProjectData.byCwd : tokensByProjectData.byOps;
+  if (!data) {
+    return res.status(404).json({
+      error: 'No token data found. Run scan.py or attribute.py in ~/git/tokens-per-directory/ to generate.',
+    });
+  }
+  res.json({ projects: data, mode, generatedAt: tokensByProjectData.loadedAt });
+});
+
 // SSE endpoint
 app.get('/api/sse', (req, res) => {
   res.writeHead(200, {
@@ -846,6 +879,7 @@ app.get('/api/sse', (req, res) => {
 // ── Startup ────────────────────────────────────────────────────────────
 console.log('Building session index...');
 buildIndex();
+loadTokensData();
 
 // Initialize file offsets to current sizes (only track new data)
 for (const [filePath, meta] of fileIndex) {

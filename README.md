@@ -4,6 +4,8 @@ Local observability dashboard for [Claude Code](https://docs.anthropic.com/en/do
 
 Reads the JSONL session transcripts that Claude Code writes to `~/.claude/projects/` and presents them as a live-updating web dashboard. No cloud, no telemetry — everything stays on your machine.
 
+![Claude Monitor dashboard](docs/screenshot.png)
+
 ## Quick Start
 
 ```bash
@@ -80,15 +82,7 @@ Pricing per million tokens (March 2026):
 | Sonnet 4.5 | $3 | $15 | $0.30 | $3.75 |
 | Haiku 4.5 | $0.80 | $4 | $0.08 | $1.00 |
 
-Note: token counts from the index scan are approximate (sampled from head/tail bytes). The session detail view parses the complete file for exact numbers.
-
-## Shared Bulletin Board
-
-This project is part of a multi-instance Claude Code workflow. Multiple Claude instances working across different projects communicate asynchronously via a shared bulletin board at `~/.claude/tmp/notes/`.
-
-Any instance can drop a note there — a discovery, a question, a status update, something interesting. Notes follow the convention `YYYY-MM-DD-<short-topic>.md` and start with a one-line `> summary` for skimming. This is how the instance that *built* Claude Monitor left a note about the architecture decisions and the "snake eating its own tail" moment of watching the SSE endpoint capture events from its own session during development.
-
-The bulletin board isn't part of Claude Monitor's codebase, but it's a key piece of the observability ecosystem — where the quantitative data in this dashboard meets the qualitative context of what each session was actually doing.
+Note: token counts from the index scan are approximate (sampled from head/tail bytes). The session detail view parses the complete file for exact numbers. Streaming chunk deduplication is applied everywhere — Claude Code writes multiple JSONL entries per API response (sharing the same `message.id`), and only the last entry per ID has the final usage tallies.
 
 ## Color Scheme
 

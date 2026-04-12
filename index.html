@@ -865,6 +865,12 @@
   </div>
   <div class="tp-controls">
     <div class="tp-toggle">
+      <button data-tp-period="24h">24h</button>
+      <button data-tp-period="7d">7d</button>
+      <button data-tp-period="30d">30d</button>
+      <button class="active" data-tp-period="all">All time</button>
+    </div>
+    <div class="tp-toggle">
       <button class="active" data-tp-metric="tokens">Tokens</button>
       <button data-tp-metric="cost">Cost ($)</button>
     </div>
@@ -1554,6 +1560,7 @@ async function loadAgents() {
 let tpData = [];
 let tpMetric = 'tokens';
 let tpMode = 'ops';
+let tpPeriod = 'all';
 let tpLoaded = { ops: false, cwd: false };
 
 function tpFmt(n) {
@@ -1568,6 +1575,37 @@ function tpFmtCost(n) { return '$' + n.toFixed(2); }
 function tpGetVal(p) { return tpMetric === 'cost' ? p.total_cost : p.total_tokens; }
 function tpGetFamVal(info) { return tpMetric === 'cost' ? (info?.cost || 0) : (info?.tokens || 0); }
 function tpFmtVal(v) { return tpMetric === 'cost' ? tpFmtCost(v) : tpFmt(v); }
+
+function getFilteredTpData() {
+  if (tpPeriod === 'all') return tpData;
+  const now = new Date();
+  const cutoff = new Date(now);
+  if (tpPeriod === '24h') cutoff.setDate(now.getDate() - 1);
+  else if (tpPeriod === '7d') cutoff.setDate(now.getDate() - 7);
+  else if (tpPeriod === '30d') cutoff.setDate(now.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return tpData.map(p => {
+    if (!p.by_day) return null;
+    const by_family = {};
+    let total_tokens = 0, total_cost = 0;
+    for (const [date, day] of Object.entries(p.by_day)) {
+      if (date < cutoffStr) continue;
+      total_tokens += day.total_tokens;
+      total_cost += day.total_cost;
+      for (const [fam, info] of Object.entries(day.by_family)) {
+        if (!by_family[fam]) by_family[fam] = { tokens: 0, cost: 0, input: 0, output: 0, cache_read: 0, cache_create: 0 };
+        by_family[fam].tokens += info.tokens;
+        by_family[fam].cost += info.cost;
+        by_family[fam].input += info.input;
+        by_family[fam].output += info.output;
+        by_family[fam].cache_read += info.cache_read;
+        by_family[fam].cache_create += info.cache_create;
+      }
+    }
+    if (total_tokens === 0 && total_cost === 0) return null;
+    return { name: p.name, total_tokens, total_cost, by_family };
+  }).filter(Boolean);
+}
 
 const tpCache = {};
 async function loadTokensData() {
@@ -1590,11 +1628,12 @@ async function loadTokensData() {
 }
 
 function renderTpSummary() {
-  const totalTokens = tpData.reduce((s, p) => s + p.total_tokens, 0);
-  const totalCost = tpData.reduce((s, p) => s + p.total_cost, 0);
+  const filtered = getFilteredTpData();
+  const totalTokens = filtered.reduce((s, p) => s + p.total_tokens, 0);
+  const totalCost = filtered.reduce((s, p) => s + p.total_cost, 0);
   const families = { opus: 0, sonnet: 0, haiku: 0 };
   const famCost = { opus: 0, sonnet: 0, haiku: 0 };
-  for (const p of tpData) {
+  for (const p of filtered) {
     for (const [f, info] of Object.entries(p.by_family)) {
       if (families[f] !== undefined) { families[f] += info.tokens; famCost[f] += info.cost; }
     }
@@ -1605,13 +1644,13 @@ function renderTpSummary() {
     <div class="tp-card"><div class="tp-card-label">Opus</div><div class="tp-card-value" style="color:var(--opus)">${tpFmt(families.opus)} <span style="font-size:0.5em;color:var(--text-dim)">${tpFmtCost(famCost.opus)}</span></div></div>
     <div class="tp-card"><div class="tp-card-label">Sonnet</div><div class="tp-card-value" style="color:var(--sonnet)">${tpFmt(families.sonnet)} <span style="font-size:0.5em;color:var(--text-dim)">${tpFmtCost(famCost.sonnet)}</span></div></div>
     <div class="tp-card"><div class="tp-card-label">Haiku</div><div class="tp-card-value" style="color:var(--haiku)">${tpFmt(families.haiku)} <span style="font-size:0.5em;color:var(--text-dim)">${tpFmtCost(famCost.haiku)}</span></div></div>
-    <div class="tp-card"><div class="tp-card-label">Projects</div><div class="tp-card-value">${tpData.length}</div></div>
+    <div class="tp-card"><div class="tp-card-label">Projects</div><div class="tp-card-value">${filtered.length}</div></div>
   `;
 }
 
 function renderTpChart() {
   const topN = parseInt(document.getElementById('tpTopN').value) || 30;
-  const sorted = [...tpData].sort((a, b) => tpGetVal(b) - tpGetVal(a));
+  const sorted = [...getFilteredTpData()].sort((a, b) => tpGetVal(b) - tpGetVal(a));
   const visible = sorted.slice(0, topN);
   const maxVal = visible.length ? tpGetVal(visible[0]) : 1;
   const chart = document.getElementById('tpChart');
@@ -1696,24 +1735,34 @@ function tpMoveTip(e) {
 }
 function tpHideTip() { document.getElementById('tpTooltip').classList.remove('visible'); }
 
-// Tokens view controls
-document.querySelectorAll('.tp-toggle button').forEach(btn => {
+// Tokens view controls — per-group toggle handlers
+document.querySelectorAll('[data-tp-metric]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tp-toggle button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('[data-tp-metric]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     tpMetric = btn.dataset.tpMetric;
+    renderTpSummary();
     renderTpChart();
   });
 });
 document.getElementById('tpTopN').addEventListener('change', renderTpChart);
 
-// Mode toggle (by file ops vs by cwd)
 document.querySelectorAll('[data-tp-mode]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('[data-tp-mode]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     tpMode = btn.dataset.tpMode;
     loadTokensData();
+  });
+});
+
+document.querySelectorAll('[data-tp-period]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-tp-period]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    tpPeriod = btn.dataset.tpPeriod;
+    renderTpSummary();
+    renderTpChart();
   });
 });
 

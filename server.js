@@ -72,6 +72,27 @@ function parseJsonlLines(text) {
   return lines;
 }
 
+// Deduplicate streaming chunks: Claude Code writes multiple JSONL entries per
+// API response sharing the same message.id (intermediate streaming snapshots).
+// Only the last entry per message.id has the final usage tallies.
+function deduplicateLines(lines) {
+  const lastByMsgId = new Map(); // msgId -> index of last occurrence
+  const dupeIndices = new Set();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.type === 'assistant' && line.message?.id) {
+      const msgId = line.message.id;
+      if (lastByMsgId.has(msgId)) {
+        dupeIndices.add(lastByMsgId.get(msgId)); // mark earlier occurrence for removal
+      }
+      lastByMsgId.set(msgId, i);
+    }
+  }
+
+  return lines.filter((_, i) => !dupeIndices.has(i));
+}
+
 // Extract quick metadata from head/tail of a JSONL file
 function indexFile(filePath) {
   try {
@@ -120,7 +141,10 @@ function indexFile(filePath) {
     let agentType = '';
     let agentDescription = '';
 
-    for (const line of tailLines) {
+    // Combine head + tail and deduplicate (handles streaming chunks + head/tail overlap)
+    const allSampleLines = deduplicateLines([...headLines, ...tailLines]);
+
+    for (const line of allSampleLines) {
       if (line.timestamp) {
         const ts = typeof line.timestamp === 'number' ? new Date(line.timestamp) : new Date(line.timestamp);
         if (!lastTimestamp || ts > lastTimestamp) lastTimestamp = ts;
@@ -128,19 +152,6 @@ function indexFile(filePath) {
       if (line.type === 'assistant' && line.message) {
         messageCount++;
         if (line.message.model) model = line.message.model;
-        if (line.message.usage) {
-          totalInputTokens += line.message.usage.input_tokens || 0;
-          totalOutputTokens += line.message.usage.output_tokens || 0;
-          totalCacheRead += line.message.usage.cache_read_input_tokens || 0;
-          totalCacheCreate += line.message.usage.cache_creation_input_tokens || 0;
-        }
-      }
-    }
-
-    // Also scan head lines for token data and agent info
-    for (const line of headLines) {
-      if (line.type === 'assistant' && line.message) {
-        if (line.message.model && !model) model = line.message.model;
         if (line.message.usage) {
           totalInputTokens += line.message.usage.input_tokens || 0;
           totalOutputTokens += line.message.usage.output_tokens || 0;
@@ -281,7 +292,7 @@ function parseSessionDetail(filePath) {
 
   try {
     const content = fs.readFileSync(filePath, 'utf8');
-    const lines = parseJsonlLines(content);
+    const lines = deduplicateLines(parseJsonlLines(content));
 
     const messages = [];
     const agents = [];
@@ -446,6 +457,7 @@ function loadTokensData() {
 const sseClients = new Set();
 const fileOffsets = new Map();   // filePath -> byte offset
 const debounceTimers = new Map(); // filePath -> timeout
+const lastMsgPerFile = new Map(); // filePath -> { id, usage } for cross-batch streaming dedup
 
 function broadcastSSE(event, data) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -466,13 +478,28 @@ function handleFileChange(filePath) {
     fs.closeSync(fd);
     fileOffsets.set(filePath, stat.size);
 
-    const newLines = parseJsonlLines(buf.toString('utf8'));
+    const newLines = deduplicateLines(parseJsonlLines(buf.toString('utf8')));
     const meta = fileIndex.get(filePath);
 
     for (const line of newLines) {
       if (line.type === 'assistant' && line.message) {
         const usage = line.message.usage || {};
         const model = line.message.model || '';
+        const msgId = line.message.id;
+
+        // Cross-batch streaming dedup: if this message ID was already counted
+        // in a previous debounce window, subtract the old usage before adding new
+        const prev = lastMsgPerFile.get(filePath);
+        if (msgId && prev && prev.id === msgId && meta) {
+          meta.messageCount--;
+          meta.tokens.input -= prev.usage.input_tokens || 0;
+          meta.tokens.output -= prev.usage.output_tokens || 0;
+          meta.tokens.cacheRead -= prev.usage.cache_read_input_tokens || 0;
+          meta.tokens.cacheCreate -= prev.usage.cache_creation_input_tokens || 0;
+        }
+        if (msgId) {
+          lastMsgPerFile.set(filePath, { id: msgId, usage });
+        }
 
         // Update index metadata
         if (meta) {

@@ -59,6 +59,7 @@ Pricing per million tokens (March 2026):
 ## Architecture Notes
 
 - **Token counts from head/tail are approximate** — they sample from the first and last ~4-8KB of each file, not the full content. The detail view (`/api/sessions/:id`) parses the complete file for exact numbers.
+- **Streaming chunk deduplication** — Claude Code writes multiple JSONL entries per API response sharing the same `message.id`. The `deduplicateLines()` helper keeps only the last entry per ID (which has the final usage tallies). Applied in index scan, detail parse, and SSE handler.
 - **SSE uses `fs.watch` with recursive option** (macOS FSEvents). File changes are debounced at 500ms per file to batch rapid JSONL appends.
 - **CSS-only charts** — bar charts and heatmaps are pure CSS, no charting library needed.
 - **Color scheme**: purple = Opus, green = Sonnet, orange = Haiku (matches Lyra dashboard palette).

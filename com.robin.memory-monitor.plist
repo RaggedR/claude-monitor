@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.robin.memory-monitor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/robin/git/claude-monitor/memory_monitor.py</string>
+        <string>--port</string>
+        <string>8085</string>
+        <string>--interval</string>
+        <string>10</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/memory-monitor.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/memory-monitor.log</string>
+</dict>
+</plist>
